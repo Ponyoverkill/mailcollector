@@ -6,11 +6,18 @@ from django.db import models
 from django.conf import settings
 
 
-def generate_filename(instance, filename):
-    path = Path(filename)
+def generate_filename(*args, **kwargs):
+    if "filename" in kwargs:
+        filename = kwargs["filename"]
+    elif len(args) == 2 and type(args[1], str):
+        filename = args[1]
+    else:
+        filename = None
     suffix = ''
-    for s in path.suffixes:
-        suffix += s
+    if filename is not None:
+        path = Path(filename)
+        for s in path.suffixes:
+            suffix += s
     return str(uuid.uuid4()).replace('-', '') + suffix
 
 

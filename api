@@ -1,0 +1,16 @@
+FROM python:3.9-bullseye
+ENV PYTHONUNBUFFERED 1
+
+RUN mkdir -p /proj
+WORKDIR /proj
+COPY ./req.txt .
+RUN pip3 install -r req.txt
+
+
+COPY . /proj
+#RUN python3 manage.py migrate --settings=mailcollector.settings
+
+RUN chmod a+x *.sh
+
+CMD /bin/sh /proj/run.sh
+# CMD gunicorn mailcollector.wsgi:application --bind 0.0.0.0:3002

@@ -1,6 +1,6 @@
 // const baseUrl = window.location.host
-const baseUrl = 'http://127.0.0.1:8000'
-const soketUrl = 'http://127.0.0.1:8001'
+const baseUrl = 'http://127.0.0.1'
+const soketUrl = 'http://127.0.0.1:3001'
 
 const urls = {
     // token: baseUrl + "/api/v1/token/",
