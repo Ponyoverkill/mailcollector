@@ -145,7 +145,7 @@ class StatusComponent{
     }
 
     async show_numbers(count, number){
-        this.element.children("div.number").html("<a>searching "+ number + "of" + count + "</a>")
+        this.element.children("div.number").html("<a>searching "+ number + " of " + count + "</a>")
     }
 
     hide_numbers(){
@@ -153,7 +153,7 @@ class StatusComponent{
     }
 
     async show_status(count, number){
-        this.element.children("div.spinner").html("<a>loading " + count - number + " seconds left</a>")
+        this.element.children("div.spinner").html("<a>loading " + number + " messages left</a>")
     }
 
     hide_status(){
@@ -187,7 +187,6 @@ class StatusService{
 
         this.chatSocket.onmessage = async function(e) {
             const data = JSON.parse(e.data);
-            console.log(data["message"])
             if (data["type"] == "finding_last"){
                 await el.application.statusComponent.show_numbers(data["message"]["count"], data["message"]["number"])
             } else if (data["type"] == "load_message"){
@@ -209,27 +208,40 @@ class MessageComponent{
     constructor(application) {
         this.application = application
         this.element = $("div.data")
-        console.log(this.element)
         this.element.html("<table><tr><td>id</td><td>subject</td><td>dispatch</td><td>receipt</td><td>text</td><td>files</td></tr></table>")
         // this.element.children("table").html(html)
     }
 
     async add_message(data){
         let html = ""
-        html += "<tr>"
+        html += "<tr class=\"data-tr\">"
         html += "<td>" + data["id"] + "</td>"
         html += "<td>" + data["subject"] + "</td>"
         html += "<td>" + data["dispatch"] + "</td>"
         html += "<td>" + data["receipt"] + "</td>"
-        html += "<td>" + data["text"] + "</td>"
+        html += "<td>" + this.sanitize(data["text"]) + "</td>"
         html += "<td>"
         for (let file of data["files"]){
-            html += "<a href=\""+ file+ "\"" + + ">"+ file +"</a>"
+            html += "<a href=\""+ file+ "\">" + file +"</a>"
         }
         html += "</td>"
         html += "</tr>"
+        // console.log(this.element.children("table").children('tr:last'))
+        this.element.children("table").find("tr").last().after(html);
+    }
 
-        this.element.children("table").children('tr:last').after(html);
+    sanitize(str) {
+        return str.replace(/[&<>"'`]/g, char => this.escapeHtml[char]);
+    }
+
+    escapeHtml(str) {
+      return str
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;')
+        .replace(/`/g, '&#x60;');
     }
 
     async clear(){

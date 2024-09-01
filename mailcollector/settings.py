@@ -132,4 +132,3 @@ DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 
 FILE_STORAGE = FileSystemStorage(location='./storage/media',
                                  base_url=MEDIA_URL)
-

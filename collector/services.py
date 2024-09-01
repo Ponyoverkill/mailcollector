@@ -1,6 +1,7 @@
 import base64
 import email
 from email.header import decode_header
+from asyncio import sleep
 
 from channels.db import database_sync_to_async
 from django.core.files.base import ContentFile
@@ -8,7 +9,7 @@ from channels.layers import get_channel_layer
 from rest_framework.exceptions import ValidationError
 import imaplib
 
-from collector.models import Message, File
+from collector.models import Message, File, Mail
 from collector.serializers import MessageSerializer
 
 
@@ -32,80 +33,81 @@ class BaseMailService:
             [int(i) for i in self.driver.search(None, "ALL")[1][0].decode("utf-8").split(" ")]
         )
 
-    async def get_unsaved_messages(self, mail):
+    async def get_unsaved_messages(self, token, mail_id, mail_last_message, ev):
         count, numbers = self.get_message_numbers()
-        last_number = max(numbers)
+        last_number = len(numbers)
         found = False
-        number = mail.last_message if mail.last_message is not None else numbers[0]
-        for i, n in enumerate(numbers):
-            if n <= number:
+        number = mail_last_message if mail_last_message is not None else numbers[0]
+
+        async def async_generator(ls):
+            for i, n in enumerate(ls):
+                yield i, n
+
+        async for i, n in async_generator(numbers):
+            await sleep(0.2)
+            if i + 1 <= number:
                 content = {
                     "type": "finding_last",
                     "message": {
                         "count": last_number,
-                        "number": n
+                        "number": i + 1
                     }
                 }
-                await get_channel_layer().group_send(mail.token, content)
+                await ev.send_json(content)
             else:
                 if not found:
                     found = True
-                    count = last_number - i
+                    count = last_number - i + 1
                 _, msg = self.driver.fetch(str(n), '(RFC822)')
-                message_serialized = await self.parse_message(msg, mail, n)
-
-                data = await self.add_files_to_data(message_serialized)
+                message_serialized = await self.parse_message(msg, mail_id, i)
 
                 content = {
                     "type": "load_message",
                     "message": {
                         "count": count,
-                        "number": i - count,
-                        "data": data
+                        "number": last_number - i,
+                        "data": message_serialized
                     }
                 }
-                await get_channel_layer().group_send(mail.token, content)
+                await ev.send_json(content)
 
-            await self.set_last_message_async(mail, number)
+            await self.set_last_message_async(mail_id, len(numbers))
 
-    async def parse_message(self, msg_bytes, mail, number):
+    @database_sync_to_async
+    def parse_message(self, msg_bytes, mail_id, index):
         message = email.message_from_bytes(msg_bytes[0][1])
         charsets = message.get_charsets()
 
         subj = decode_header(message["Subject"])
-        subject = subj[0][0].decode(subj[0][1])
+        subject = subj[0][0].decode(subj[0][1]) if isinstance(subj[0][0], bytes) else subj[0][0]
 
         dispatch_date = decode_header(message["Date"])[0][0]
         receipt_date = decode_header(message["Received"])[0][0]
 
-        files, text = await self.parse_payload(message, charsets)
+        files, text = self.parse_payload(message, charsets)
 
-        data = await self.save_message(mail,
-                                       number,
-                                       subject,
-                                       dispatch_date,
-                                       receipt_date,
-                                       files,
-                                       text)
+        data = self.save_message(mail_id,
+                                 index,
+                                 subject,
+                                 dispatch_date,
+                                 receipt_date,
+                                 files,
+                                 text)
         return data
 
-    def set_last_message(self, mail, number):
+    @database_sync_to_async
+    def set_last_message_async(self, mail_id, number):
+        mail = Mail.objects.get(id=mail_id)
         mail.last_message = number
         mail.save()
 
-    @database_sync_to_async
-    def add_files_to_data(self, data):
-        db_files = File.objects.filter(message_id=data["id"])
-        data["files"] = [file.file.url for file in db_files]
-
-    @database_sync_to_async
-    def set_last_message_async(self, mail, number):
+    def set_last_message(self, mail_id, number):
+        mail = Mail.objects.get(id=mail_id)
         mail.last_message = number
         mail.save()
 
-    @database_sync_to_async
     def save_message(self,
-                     mail,
+                     mail_id,
                      number,
                      subject,
                      dispatch_date,
@@ -118,33 +120,43 @@ class BaseMailService:
             dispatch_date=dispatch_date,
             receipt_date=receipt_date,
             text=text,
-            mail=mail
+            mail_id=mail_id
         )
 
         db_files = File.objects.filter(id__in=files)
         for f in db_files:
-            f.mail = mail
+            f.mail_id = mail_id
             f.save()
 
-        self.set_last_message(mail, number)
-
+        self.set_last_message(mail_id, number)
+        files = list()
         serializer = MessageSerializer(instance=instance)
-        return serializer.data
+        serialized_data = serializer.data
+        for f in db_files:
+            files.append(f.file.url)
+        serialized_data["files"] = files
+        return serialized_data
 
-
-    @database_sync_to_async
     def parse_payload(self, msg, charsets):
         text = ""
         files = list()
         for part in msg.walk():
             if part.get_content_maintype() in ('text', 'html'):
-                for charset in charsets:
-                    try:
-                        text += base64.b64decode(part.get_payload()).decode("utf-8") + "\n"
-                    except UnicodeDecodeError as e:
-                        pass
+                payload = part.get_payload()
+                if isinstance(payload, str):
+                    text += payload
+                else:
+                    for charset in charsets:
+                        try:
+                            text += base64.b64decode(part.get_payload()).decode(charset) + "\n"
+                        except UnicodeDecodeError as e:
+                            pass
+                        except TypeError as e:
+                            pass
             elif part.get_content_disposition() == 'attachment':
-                filename = decode_header(part.get_filename())[0][0].decode()
+                filename = decode_header(part.get_filename())[0][0]
+                if isinstance(filename, bytes):
+                    filename = filename.decode()
                 file = File()
                 file.file.save(filename, ContentFile(part.get_payload(decode=True)))
                 file.save()

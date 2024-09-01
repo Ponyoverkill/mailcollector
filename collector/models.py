@@ -1,12 +1,17 @@
 import uuid
 from enum import Enum
+from pathlib import Path
 
 from django.db import models
 from django.conf import settings
 
 
-def generate_filename():
-    return str(uuid.uuid4()).replace('-', '')
+def generate_filename(instance, filename):
+    path = Path(filename)
+    suffix = ''
+    for s in path.suffixes:
+        suffix += s
+    return str(uuid.uuid4()).replace('-', '') + suffix
 
 
 class Mail(models.Model):
