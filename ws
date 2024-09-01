@@ -8,5 +8,7 @@ RUN pip3 install -r req.txt
 
 COPY . /proj
 
-CMD daphne -p 3001 mailcollector.asgi:application
+EXPOSE 3001
+
+CMD daphne -p 3001 -b 0.0.0.0 mailcollector.asgi:application
 # CMD python -m gunicorn mailcollector.asgi:application -k uvicorn.workers.UvicornWorker -b 0.0.0.0:3001

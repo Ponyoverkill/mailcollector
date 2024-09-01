@@ -9,7 +9,7 @@ from django.conf import settings
 def generate_filename(*args, **kwargs):
     if "filename" in kwargs:
         filename = kwargs["filename"]
-    elif len(args) == 2 and type(args[1], str):
+    elif len(args) == 2 and isinstance(args[1], str):
         filename = args[1]
     else:
         filename = None
